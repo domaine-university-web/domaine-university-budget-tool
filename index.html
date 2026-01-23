@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Money Breakdown</title>
+
+  <!-- Helps it feel more like a home-screen app -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <style>
+    :root { --pad: 16px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: calc(env(safe-area-inset-top) + var(--pad)) var(--pad) calc(env(safe-area-inset-bottom) + var(--pad));
+      background: #fff; color: #111;
+      max-width: 780px;
+    }
+    h1 { font-size: 22px; margin: 0 0 10px; }
+    .card { border: 1px solid #e5e5e5; border-radius: 14px; padding: 14px; }
+    label { display:block; margin: 6px 0 8px; font-weight: 600; }
+    input {
+      width: 100%; padding: 14px 12px; font-size: 18px;
+      border-radius: 12px; border: 1px solid #cfcfcf;
+      box-sizing: border-box;
+    }
+    .row { display:flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    button {
+      flex: 1;
+      padding: 14px 12px;
+      font-size: 17px;
+      border-radius: 12px;
+      border: 0;
+      cursor: pointer;
+      min-width: 160px;
+    }
+    button.primary { background:#111; color:#fff; }
+    button.secondary { background:#efefef; color:#111; }
+    button.danger { background:#ffe8e8; color:#8a0000; }
+    table { width:100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { padding: 12px 8px; border-bottom: 1px solid #f0f0f0; text-align:left; font-size: 16px; vertical-align: top; }
+    th { font-size: 13px; color:#666; text-transform: uppercase; letter-spacing: .04em; }
+    .total { font-weight: 700; }
+    .note { margin-top: 10px; color:#666; font-size: 13px; line-height: 1.35; }
+    .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; background:#f6f6f6; font-size: 13px; color:#333; margin-bottom: 10px; }
+
+    .split-header { display:flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 10px; }
+    .split-header h2 { font-size: 16px; margin: 0; }
+    .muted { color:#666; font-size: 13px; }
+    .split-table input {
+      padding: 12px 10px;
+      font-size: 16px;
+      border-radius: 10px;
+    }
+    .split-table td input { margin-top: 4px; }
+    .pct-input { max-width: 120px; }
+    .name-input { width: 100%; }
+    .actions { display:flex; gap: 8px; align-items: center; justify-content: flex-end; }
+    .sum-badge {
+      display:inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background:#f6f6f6;
+      font-size: 13px;
+      color:#333;
+      white-space: nowrap;
+    }
+    .sum-badge.bad { background:#fff2cc; color:#6b4f00; }
+    .sum-badge.good { background:#eaf7ee; color:#1f6b2e; }
+    .tiny { font-size: 12px; color:#666; }
+  </style>
+</head>
+<body>
+  <h1>💰 Money Breakdown</h1>
+  <div class="pill" id="pill"></div>
+
+  <div class="card">
+    <label for="amount">Enter amount</label>
+    <input id="amount" inputmode="decimal" placeholder="e.g., 2500" />
+
+    <div class="split-header">
+      <h2>Categories & Percentages</h2>
+      <div class="actions">
+        <span id="sumBadge" class="sum-badge">Total: 0%</span>
+      </div>
+    </div>
+    <div class="muted">Edit names/percentages, add/remove categories. Tip: Percent can be typed like <b>15</b> (meaning 15%).</div>
+
+    <table class="split-table" style="margin-top:10px;">
+      <thead>
+        <tr><th style="width:55%;">Category</th><th style="width:25%;">Percent</th><th style="width:20%; text-align:right;">Action</th></tr>
+      </thead>
+      <tbody id="splitTbody"></tbody>
+    </table>
+
+    <div class="row">
+      <button class="secondary" onclick="addSplit()">+ Add category</button>
+      <button class="secondary" onclick="resetSplits()">Reset defaults</button>
+      <button class="primary" onclick="calculate()">Calculate</button>
+      <button class="secondary" onclick="clearAll()">Clear</button>
+    </div>
+
+    <div id="results" style="display:none;">
+      <table>
+        <thead>
+          <tr><th>Category</th><th>%</th><th>Amount</th></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+        <tfoot>
+          <tr class="total"><td>Total</td><td id="totalPctCell">100%</td><td id="totalCell"></td></tr>
+        </tfoot>
+      </table>
+
+      <div class="row">
+        <button class="secondary" onclick="copyText()">Copy breakdown</button>
+        <!-- ✅ NEW: export to spreadsheet -->
+        <button class="primary" onclick="exportCSV()">Export to Spreadsheet (CSV)</button>
+      </div>
+
+      <div class="note" id="note">
+        Rounds to cents. Any tiny rounding difference is adjusted into the <b>first</b> category.
+      </div>
+    </div>
+
+    <div class="tiny" style="margin-top:10px;">
+      Saved on this device: amount + categories + percentages.
+    </div>
+  </div>
+
+<script>
+  const DEFAULT_SPLITS = [
+    { name: "Household", pct: 50 },
+    { name: "Tax", pct: 15 },
+    { name: "Charitable Giving", pct: 10 },
+    { name: "Giving (Family)", pct: 5 },
+    { name: "Investing", pct: 20 },
+  ];
+
+  const LS_AMOUNT = "lastAmount";
+  const LS_SPLITS = "moneyBreakdownSplitsV2";
+
+  const amountEl = document.getElementById("amount");
+  const splitTbody = document.getElementById("splitTbody");
+  const pillEl = document.getElementById("pill");
+  const sumBadge = document.getElementById("sumBadge");
+
+  // ---- State ----
+  let splits = loadSplits();
+
+  // Restore last amount
+  const savedAmt = localStorage.getItem(LS_AMOUNT);
+  if (savedAmt) amountEl.value = savedAmt;
+
+  // Initial render
+  renderSplits();
+
+  // ---- Helpers ----
+  function money(n) {
+    return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+
+  function clamp(n, min, max) {
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function parsePct(value) {
+    // accepts "15", "15%", "0.15" (we treat <=1 as fraction)
+    const s = String(value).trim().replace("%", "");
+    let n = Number(s);
+    if (!isFinite(n)) return NaN;
+    if (n <= 1) n = n * 100; // treat 0.15 as 15%
+    return n;
+  }
+
+  function totalPct() {
+    return splits.reduce((sum, s) => sum + (Number(s.pct) || 0), 0);
+  }
+
+  // ✅ sum of all other category % (excludes one index)
+  function remainingPct(excludeIndex) {
+    return splits.reduce((sum, s, i) => {
+      if (i === excludeIndex) return sum;
+      return sum + (Number(s.pct) || 0);
+    }, 0);
+  }
+
+  function updatePill() {
+    const parts = splits
+      .filter(s => (s.name || "").trim() && isFinite(s.pct))
+      .map(s => `${roundPct(s.pct)}% ${escapeHtml(s.name.trim())}`);
+    pillEl.textContent = parts.join(" • ") || "Add categories to begin";
+  }
+
+  function roundPct(p) {
+    // display cleaner whole numbers unless decimals are used
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+    return isInt ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
+  }
+
+  function updateSumBadge() {
+    const sum = Math.round(totalPct() * 100) / 100;
+    sumBadge.textContent = `Total: ${roundPct(sum)}%`;
+    sumBadge.classList.remove("bad","good");
+    if (Math.abs(sum - 100) < 1e-9) sumBadge.classList.add("good");
+    else sumBadge.classList.add("bad");
+  }
+
+  function saveSplits() {
+    localStorage.setItem(LS_SPLITS, JSON.stringify(splits));
+    updatePill();
+    updateSumBadge();
+  }
+
+  function loadSplits() {
+    try {
+      const raw = localStorage.getItem(LS_SPLITS);
+      if (!raw) return structuredClone(DEFAULT_SPLITS);
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return structuredClone(DEFAULT_SPLITS);
+      // Normalize
+      return parsed.map(s => ({
+        name: String(s.name ?? "").slice(0, 60),
+        pct: clamp(Number(s.pct ?? 0), 0, 100)
+      }));
+    } catch {
+      return structuredClone(DEFAULT_SPLITS);
+    }
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  // ✅ CSV helpers
+  function csvEscape(value) {
+    const s = String(value ?? "");
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
+  function downloadFile(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- UI Rendering ----
+  function renderSplits() {
+    splitTbody.innerHTML = "";
+    splits.forEach((s, idx) => {
+      const tr = document.createElement("tr");
+
+      const nameTd = document.createElement("td");
+      const nameInput = document.createElement("input");
+      nameInput.className = "name-input";
+      nameInput.placeholder = "Category name (e.g., Household)";
+      nameInput.value = s.name;
+      nameInput.addEventListener("input", () => {
+        splits[idx].name = nameInput.value;
+        saveSplits();
+      });
+      nameTd.appendChild(nameInput);
+
+      const pctTd = document.createElement("td");
+      const pctInput = document.createElement("input");
+      pctInput.className = "pct-input";
+      pctInput.inputMode = "decimal";
+      pctInput.placeholder = "e.g., 15";
+      pctInput.value = roundPct(s.pct);
+
+      // ✅ prevent total % from ever exceeding 100
+      pctInput.addEventListener("input", () => {
+        const entered = parsePct(pctInput.value);
+        if (!isFinite(entered)) return;
+
+        const otherTotal = remainingPct(idx);
+        const maxAllowed = Math.max(0, 100 - otherTotal);
+
+        splits[idx].pct = clamp(entered, 0, maxAllowed);
+        pctInput.value = roundPct(splits[idx].pct);
+
+        saveSplits();
+      });
+
+      pctInput.addEventListener("blur", () => {
+        pctInput.value = roundPct(splits[idx].pct);
+      });
+      pctTd.appendChild(pctInput);
+
+      const actionTd = document.createElement("td");
+      actionTd.style.textAlign = "right";
+      const delBtn = document.createElement("button");
+      delBtn.className = "danger";
+      delBtn.type = "button";
+      delBtn.textContent = "Remove";
+      delBtn.style.flex = "0";
+      delBtn.style.padding = "10px 12px";
+      delBtn.style.borderRadius = "10px";
+      delBtn.style.minWidth = "0";
+      delBtn.onclick = () => removeSplit(idx);
+      // Don’t allow removing the last row (helps keep UI sane)
+      delBtn.disabled = splits.length <= 1;
+      actionTd.appendChild(delBtn);
+
+      tr.appendChild(nameTd);
+      tr.appendChild(pctTd);
+      tr.appendChild(actionTd);
+      splitTbody.appendChild(tr);
+    });
+
+    updatePill();
+    updateSumBadge();
+  }
+
+  function addSplit() {
+    splits.push({ name: "", pct: 0 });
+    saveSplits();
+    renderSplits();
+  }
+
+  function removeSplit(idx) {
+    if (splits.length <= 1) return;
+    splits.splice(idx, 1);
+    saveSplits();
+    renderSplits();
+  }
+
+  function resetSplits() {
+    splits = structuredClone(DEFAULT_SPLITS);
+    saveSplits();
+    renderSplits();
+  }
+
+  // ---- Calculation ----
+  function calculate() {
+    const raw = amountEl.value.trim().replace(/[$, ]/g, "");
+    const total = Number(raw);
+
+    if (!isFinite(total) || total < 0) {
+      alert("Enter a valid dollar amount (example: 2500).");
+      return;
+    }
+
+    const cleaned = splits
+      .map(s => ({ name: (s.name || "").trim(), pct: Number(s.pct) }))
+      .filter(s => s.name && isFinite(s.pct) && s.pct >= 0);
+
+    if (cleaned.length === 0) {
+      alert("Add at least one category with a name.");
+      return;
+    }
+
+    const pctSum = cleaned.reduce((a, b) => a + b.pct, 0);
+
+    // ✅ Hard requirement: must be 100%
+    if (Math.abs(pctSum - 100) > 1e-9) {
+      alert(`Your percentages must total 100%. Current total: ${roundPct(pctSum)}%.`);
+      return;
+    }
+
+    // Save amount + splits
+    localStorage.setItem(LS_AMOUNT, String(total));
+    localStorage.setItem(LS_SPLITS, JSON.stringify(splits));
+
+    const rows = cleaned.map(s => {
+      const pctUsed = (s.pct / 100);
+      return {
+        name: s.name,
+        pctDisplay: s.pct,
+        pctUsed,
+        value: Math.round(total * pctUsed * 100) / 100
+      };
+    });
+
+    // Fix rounding drift by adjusting first row
+    const sum = rows.reduce((a, b) => a + b.value, 0);
+    const drift = Math.round((total - sum) * 100) / 100;
+    rows[0].value = Math.round((rows[0].value + drift) * 100) / 100;
+
+    const tbody = document.getElementById("tbody");
+    tbody.innerHTML = "";
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${escapeHtml(r.name)}</td><td>${roundPct(r.pctDisplay)}%</td><td>${money(r.value)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById("totalCell").textContent = money(total);
+    document.getElementById("totalPctCell").textContent = "100%";
+    document.getElementById("results").style.display = "block";
+
+    const note = document.getElementById("note");
+    note.innerHTML = `Rounds to cents. Any tiny rounding difference is adjusted into <b>${escapeHtml(rows[0].name)}</b>.`;
+
+    window._lastBreakdown = {
+      total,
+      amounts: rows.map(r => ({ name: r.name, pct: r.pctDisplay/100, pctDisplay: r.pctDisplay, value: r.value }))
+    };
+  }
+
+  function clearAll() {
+    amountEl.value = "";
+    localStorage.removeItem(LS_AMOUNT);
+    document.getElementById("results").style.display = "none";
+    document.getElementById("tbody").innerHTML = "";
+    window._lastBreakdown = null;
+  }
+
+  async function copyText() {
+    if (!window._lastBreakdown) return;
+    const { total, amounts } = window._lastBreakdown;
+
+    const lines = [
+      `Total: ${money(total)}`,
+      ...amounts.map(a => `${Math.round(a.pct*10000)/100}% ${a.name}: ${money(a.value)}`)
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(lines);
+      alert("Copied!");
+    } catch {
+      alert("Copy blocked. Here it is:\n\n" + lines);
+    }
+  }
+
+  // ✅ NEW: Export calculated results to a spreadsheet-friendly CSV
+  function exportCSV() {
+    if (!window._lastBreakdown) {
+      alert("Run Calculate first, then export.");
+      return;
+    }
+
+    const { total, amounts } = window._lastBreakdown;
+
+    const headers = ["Category", "Percent", "Amount"];
+    const lines = [
+      headers.map(csvEscape).join(","),
+      ...amounts.map(a => [
+        csvEscape(a.name),
+        csvEscape(`${Math.round(a.pctDisplay * 100) / 100}%`),
+        csvEscape(a.value.toFixed(2))
+      ].join(",")),
+      ["Total", "100%", total.toFixed(2)].map(csvEscape).join(",")
+    ].join("\n");
+
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+    downloadFile(`money-breakdown-${stamp}.csv`, lines, "text/csv;charset=utf-8");
+  }
+</script>
+</body>
+</html>
