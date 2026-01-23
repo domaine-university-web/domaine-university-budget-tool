@@ -165,12 +165,17 @@
     return Math.min(max, Math.max(min, n));
   }
 
+  // ✅ FIXED: only treat 0 < n < 1 as a fraction
   function parsePct(value) {
-    // accepts "15", "15%", "0.15" (we treat <=1 as fraction)
+    // accepts "15", "15%", "0.15" (treat 0 < n < 1 as fraction)
     const s = String(value).trim().replace("%", "");
-    let n = Number(s);
-    if (!isFinite(n)) return NaN;
-    if (n <= 1) n = n * 100; // treat 0.15 as 15%
+    if (s === "") return NaN;
+
+    const n0 = Number(s);
+    if (!isFinite(n0)) return NaN;
+
+    let n = n0;
+    if (n > 0 && n < 1) n = n * 100; // 0.15 => 15, but 1 => 1 (NOT 100)
     return n;
   }
 
@@ -280,16 +285,26 @@
       pctInput.placeholder = "e.g., 15";
       pctInput.value = roundPct(s.pct);
 
-      // ✅ prevent total % from ever exceeding 100
+      // ✅ FIXED: allow natural typing; only clamp if exceeding max
       pctInput.addEventListener("input", () => {
         const entered = parsePct(pctInput.value);
-        if (!isFinite(entered)) return;
+
+        // allow typing-in-progress without fighting the user
+        if (!isFinite(entered)) {
+          updateSumBadge();
+          return;
+        }
 
         const otherTotal = remainingPct(idx);
         const maxAllowed = Math.max(0, 100 - otherTotal);
 
-        splits[idx].pct = clamp(entered, 0, maxAllowed);
-        pctInput.value = roundPct(splits[idx].pct);
+        const clamped = clamp(entered, 0, maxAllowed);
+        splits[idx].pct = clamped;
+
+        // only force-change what user typed if they exceeded allowed max
+        if (entered !== clamped) {
+          pctInput.value = roundPct(clamped);
+        }
 
         saveSplits();
       });
