@@ -172,12 +172,13 @@ th{
 <div class="sub">Domain Global • Pro Financial Allocation Tool</div>
 
 <div class="card">
-  <label>Total Amount</label>
-  <input id="amount" placeholder="e.g. 5000">
+  <label for="amount">Total Amount</label>
+  <!-- make amount a number input with step and min -->
+  <input id="amount" type="number" step="0.01" min="0" placeholder="e.g. 5000">
 </div>
 
 <div class="card">
-  <table id="categoryTable">
+  <table id="categoryTable" aria-label="Categories">
     <thead>
       <tr>
         <th>Category</th>
@@ -189,7 +190,7 @@ th{
   </table>
 
   <div class="row">
-    <button class="secondary" onclick="addCategory()">+ Add Category</button>
+    <button type="button" class="secondary" onclick="addCategory()">+ Add Category</button>
   </div>
 
   <div id="percentStatus" class="status ok">Total Allocation: <b id="pctTotal">100%</b></div>
@@ -197,12 +198,12 @@ th{
 
 <div class="card">
   <div class="row">
-    <button class="primary" onclick="calculate()">Calculate</button>
-    <button class="secondary" onclick="exportPDF()">Export PDF</button>
-    <button class="danger" onclick="resetAll()">Reset</button>
+    <button type="button" class="primary" onclick="calculate()">Calculate</button>
+    <button type="button" class="secondary" onclick="exportPDF()">Export PDF</button>
+    <button type="button" class="danger" onclick="resetAll()">Reset</button>
   </div>
 
-  <table id="results" style="display:none">
+  <table id="results" style="display:none" aria-live="polite">
     <thead>
       <tr>
         <th>Category</th>
@@ -224,6 +225,7 @@ th{
 <div class="watermark">PRO</div>
 
 <script>
+/* Data */
 let categories = [
   {name:"Living Expenses", pct:50},
   {name:"Taxes", pct:20},
@@ -233,34 +235,72 @@ let categories = [
 ];
 
 const tbody = document.querySelector("#categoryTable tbody");
+const percentStatus = document.getElementById("percentStatus");
+const EPS = 1e-6; // tolerance for float comparisons
 
+/* Render categories using safe DOM methods (avoid innerHTML with user data) */
 function renderCategories(){
-  tbody.innerHTML="";
-  categories.forEach((c,i)=>{
-    const tr=document.createElement("tr");
-    tr.innerHTML=`
-      <td><input value="${c.name}" oninput="categories[${i}].name=this.value"></td>
-      <td><input type="number" value="${c.pct}" min="0" oninput="categories[${i}].pct=Number(this.value);updatePct()"></td>
-      <td><button class="danger" onclick="removeCategory(${i})">✕</button></td>
-    `;
+  tbody.innerHTML = "";
+  categories.forEach((c, i) => {
+    const tr = document.createElement("tr");
+
+    // Name cell
+    const tdName = document.createElement("td");
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = c.name;
+    nameInput.oninput = (e) => {
+      categories[i].name = e.target.value;
+    };
+    tdName.appendChild(nameInput);
+
+    // Percent cell
+    const tdPct = document.createElement("td");
+    const pctInput = document.createElement("input");
+    pctInput.type = "number";
+    pctInput.value = c.pct;
+    pctInput.min = "0";
+    pctInput.max = "100";
+    pctInput.step = "0.01";
+    pctInput.oninput = (e) => {
+      const v = parseFloat(e.target.value);
+      categories[i].pct = isFinite(v) ? v : 0;
+      updatePct();
+    };
+    tdPct.appendChild(pctInput);
+
+    // Remove cell
+    const tdRemove = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "danger";
+    btn.textContent = "✕";
+    btn.onclick = () => removeCategory(i);
+    tdRemove.appendChild(btn);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdPct);
+    tr.appendChild(tdRemove);
     tbody.appendChild(tr);
   });
   updatePct();
 }
 
+/* Update percentage display safely and consistently */
 function updatePct(){
-  const total = categories.reduce((a,c)=>a+c.pct,0);
-  document.getElementById("pctTotal").textContent=total+"%";
-  const box=document.getElementById("percentStatus");
-  if(total>100){
-    box.className="status bad";
-    box.innerHTML="⚠ Total exceeds 100%";
-  }else{
-    box.className="status ok";
-    box.innerHTML=`Total Allocation: <b>${total}%</b>`;
+  const total = categories.reduce((a, c) => a + (Number(c.pct) || 0), 0);
+
+  // Always render an element with id pctTotal so callers don't get null
+  if (total > 100 + EPS) {
+    percentStatus.className = "status bad";
+    percentStatus.innerHTML = `⚠ Total exceeds 100% — Total Allocation: <b id="pctTotal">${total}%</b>`;
+  } else {
+    percentStatus.className = "status ok";
+    percentStatus.innerHTML = `Total Allocation: <b id="pctTotal">${total}%</b>`;
   }
 }
 
+/* Add / remove helpers */
 function addCategory(){
   categories.push({name:"New Category", pct:0});
   renderCategories();
@@ -271,31 +311,70 @@ function removeCategory(i){
   renderCategories();
 }
 
+/* Calculate results (returns true on success) */
 function calculate(){
-  const totalAmount=Number(document.getElementById("amount").value);
-  if(!totalAmount) return alert("Enter a valid amount");
-  const pctSum=categories.reduce((a,c)=>a+c.pct,0);
-  if(pctSum!==100) return alert("Percentages must equal 100%");
-  const body=document.getElementById("resultsBody");
-  body.innerHTML="";
-  categories.forEach(c=>{
-    const val=(totalAmount*(c.pct/100)).toFixed(2);
-    body.innerHTML+=`<tr><td>${c.name}</td><td>${c.pct}%</td><td>$${val}</td></tr>`;
+  const totalAmount = parseFloat(document.getElementById("amount").value);
+  if (!isFinite(totalAmount) || totalAmount <= 0) {
+    alert("Enter a valid positive amount");
+    return false;
+  }
+
+  const pctSum = categories.reduce((a, c) => a + (Number(c.pct) || 0), 0);
+  if (Math.abs(pctSum - 100) > 0.0001) {
+    alert("Percentages must equal 100%");
+    return false;
+  }
+
+  const body = document.getElementById("resultsBody");
+  body.innerHTML = ""; // clear previous
+  categories.forEach(c => {
+    const tr = document.createElement("tr");
+
+    const tdName = document.createElement("td");
+    tdName.textContent = c.name;
+
+    const tdPct = document.createElement("td");
+    tdPct.textContent = `${c.pct}%`;
+
+    const tdAmt = document.createElement("td");
+    const val = (totalAmount * (c.pct / 100));
+    tdAmt.textContent = `$${val.toFixed(2)}`;
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdPct);
+    tr.appendChild(tdAmt);
+    body.appendChild(tr);
   });
-  document.getElementById("totalAmount").textContent="$"+totalAmount.toFixed(2);
-  document.getElementById("results").style.display="table";
+
+  document.getElementById("totalAmount").textContent = `$${totalAmount.toFixed(2)}`;
+  document.getElementById("results").style.display = "table";
+  return true;
 }
 
+/* Export to PDF — validate first */
 function exportPDF(){
-  calculate();
-  const {jsPDF}=window.jspdf;
-  const pdf=new jsPDF();
-  pdf.text("Money Breakdown Tool (Pro)",14,16);
-  let y=30;
-  categories.forEach(c=>{
-    pdf.text(`${c.name} - ${c.pct}%`,14,y);
-    y+=8;
+  // Validate and compute first
+  if (!calculate()) return; // calculate will alert on failure
+
+  const {jsPDF} = window.jspdf;
+  const pdf = new jsPDF();
+  pdf.setFontSize(14);
+  pdf.text("Money Breakdown Tool (Pro)", 14, 16);
+  let y = 30;
+  const totalAmount = parseFloat(document.getElementById("amount").value);
+
+  categories.forEach(c => {
+    const amt = (totalAmount * (Number(c.pct) || 0) / 100).toFixed(2);
+    pdf.setFontSize(11);
+    pdf.text(`${c.name} — ${c.pct}% — $${amt}`, 14, y);
+    y += 8;
+    // simple page break guard
+    if (y > 280) {
+      pdf.addPage();
+      y = 20;
+    }
   });
+
   pdf.save("Money_Breakdown_Pro.pdf");
 }
 
@@ -303,6 +382,7 @@ function resetAll(){
   location.reload();
 }
 
+/* Initial render */
 renderCategories();
 </script>
 
